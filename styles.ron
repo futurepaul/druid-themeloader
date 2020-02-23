@@ -1,0 +1,7 @@
+(
+    map: {
+        "button_dark": Color(50, 50, 50, 255),
+        "font_name": String("Menlo"),
+        "text_size_normal": Float(20),
+    },
+)

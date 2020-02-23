@@ -1,0 +1,12 @@
+[package]
+name = "druid-themeloader"
+version = "0.1.0"
+authors = ["Paul Miller <paul@pauljmiller.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+druid = { git="https://github.com/xi-editor/druid/" }
+serde = { version = "1.0", features = ["derive"] }
+ron = "0.5"
