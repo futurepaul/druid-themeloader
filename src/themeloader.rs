@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Error, Write};
 
 use ron::de::from_reader;
-use ron::ser::{to_string_pretty, PrettyConfig};
 
 use serde::{Deserialize, Serialize};
 
+use hotwatch::{Event as HotwatchEvent, Hotwatch};
+
 use druid::{
-    theme, BoxConstraints, Data, Env, Event, EventCtx, Key, LayoutCtx, LifeCycle, LifeCycleCtx,
-    PaintCtx, Selector, UpdateCtx, Value, Widget,
+    BoxConstraints, Data, Env, Event, EventCtx, Key, LayoutCtx, LifeCycle, LifeCycleCtx, PaintCtx,
+    Selector, UpdateCtx, Widget,
 };
 
 fn leak_string(from: String) -> &'static str {
@@ -31,7 +31,7 @@ enum StyleValue {
     String(String),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Stylesheet {
     map: HashMap<String, StyleValue>,
 }
@@ -69,47 +69,30 @@ impl Stylesheet {
 
 pub struct ThemeLoader<T: Data, W: Widget<T>> {
     style: Stylesheet,
+    style_file: &'static str,
     child: W,
     phantom: PhantomData<T>,
 }
 
+pub fn watch(watch_file: &'static str, event_sink: druid::ExtEventSink) -> Hotwatch {
+    let mut hotwatch = Hotwatch::new().expect("hotwatch failed to initialize!");
+    hotwatch
+        .watch(watch_file, move |event: HotwatchEvent| {
+            if let HotwatchEvent::Write(_) = event {
+                //TODO: why can't I send None as the object?
+                if let Err(_) = event_sink.submit_command(RELOAD_STYLES, "None", None) {}
+            }
+        })
+        .expect("failed to watch file!");
+
+    hotwatch
+}
+
 impl<T: Data, W: Widget<T>> ThemeLoader<T, W> {
-    // pub fn new(child: impl Widget<T> + 'static) -> impl Widget<T> {
-    //     child.env_scope(|env, _| {
-    //         let style = load_file("fonts.txt").unwrap();
-    //         env.set(theme::FONT_NAME, style);
-    //     })
-    // }
+    pub fn new(child: W, style_file: &'static str) -> ThemeLoader<T, W> {
+        let file = File::open(style_file).expect("Failed opening file");
 
-    pub fn new(child: W) -> ThemeLoader<T, W> {
-        let mut stylesheet = Stylesheet {
-            map: HashMap::new(),
-        };
-        stylesheet.map.insert(
-            "window_background_color".to_string(),
-            StyleValue::Color(50, 50, 50, 50),
-        );
-
-        stylesheet.map.insert(
-            "font_name".to_string(),
-            StyleValue::String("Menlo".to_string()),
-        );
-
-        stylesheet
-            .map
-            .insert("text_size_normal".to_string(), StyleValue::Float(14.0));
-
-        let pretty = PrettyConfig::default();
-        let s = to_string_pretty(&stylesheet, pretty).expect("Serialization failed");
-
-        println!("{}", s);
-
-        // Actual stuff
-        // let style = load_file("fonts.txt").unwrap();
-
-        let style_file = File::open("styles.ron").expect("Failed opening file");
-
-        let stylesheet: Stylesheet = match from_reader(style_file) {
+        let stylesheet: Stylesheet = match from_reader(file) {
             Ok(style) => style,
             Err(e) => {
                 eprintln!("Failed to load stylesheet: {}", e);
@@ -118,10 +101,9 @@ impl<T: Data, W: Widget<T>> ThemeLoader<T, W> {
             }
         };
 
-        dbg!(stylesheet.clone());
-
         ThemeLoader {
             style: stylesheet,
+            style_file,
             child,
             phantom: Default::default(),
         }
@@ -132,59 +114,37 @@ impl<T: Data, W: Widget<T>> Widget<T> for ThemeLoader<T, W> {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
         match event {
             Event::Command(cmd) if cmd.selector == RELOAD_STYLES => {
-                dbg!("command just happened");
+                // let _ = cmd.get_object::<&str>().unwrap().clone();
 
-                let path = cmd.get_object::<&str>().unwrap().clone();
-                dbg!(path);
-
-                // let style = load_file(path).unwrap();
-
-                // let stylesheet_file = load_file("styles.ron").unwrap();
-
-                let style_file = File::open(path).expect("Failed opening file");
+                let style_file = File::open(self.style_file).expect("Failed opening file");
 
                 let stylesheet: Stylesheet = match from_reader(style_file) {
                     Ok(style) => style,
                     Err(e) => {
                         eprintln!("Failed to load stylesheet: {}", e);
 
-                        std::process::exit(1);
+                        self.style.clone()
                     }
                 };
 
                 self.style = stylesheet;
-                // self.style = style;
 
-                // // let style = load_file("fonts.txt").unwrap();
-                // self.s
-                // let mut new_env = env.clone();
-                // new_env.set(theme::FONT_NAME, style);
-                // // self.style = "Menlo".to_string();
-                // dbg!("Nice");
-                // ctx.request_paint();
-                // self.child.event(ctx, event, data, &new_env);
-                ctx.request_paint();
+                ctx.invalidate();
             }
             _ => (),
         }
 
         let new_env = self.style.set_all(&env);
 
-        // new_env.set(theme::FONT_NAME, self.style.clone());
-
         self.child.event(ctx, event, data, &new_env);
     }
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &T, env: &Env) {
-        // let mut new_env = env.clone();
-        // self.style.set_all(&mut new_env);
         let new_env = self.style.set_all(&env);
         self.child.lifecycle(ctx, event, data, &new_env)
     }
 
     fn update(&mut self, ctx: &mut UpdateCtx, old_data: &T, data: &T, env: &Env) {
-        // let mut new_env = env.clone();
-        // self.style.set_all(&mut new_env);
         let new_env = self.style.set_all(&env);
 
         self.child.update(ctx, old_data, data, &new_env);
@@ -198,16 +158,13 @@ impl<T: Data, W: Widget<T>> Widget<T> for ThemeLoader<T, W> {
         env: &Env,
     ) -> Size {
         bc.debug_check("ThemeLoader");
-        // let mut new_env = env.clone();
-        // self.style.set_all(&mut new_env);
+
         let new_env = self.style.set_all(&env);
 
         self.child.layout(layout_ctx, &bc, data, &new_env)
     }
 
     fn paint(&mut self, paint_ctx: &mut PaintCtx, data: &T, env: &Env) {
-        // let mut new_env = env.clone();
-        // self.style.set_all(&mut new_env);
         let new_env = self.style.set_all(&env);
         self.child.paint(paint_ctx, data, &new_env);
     }

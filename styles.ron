@@ -1,7 +1,10 @@
 (
     map: {
-        "button_dark": Color(50, 50, 50, 255),
+        "local.border-color": Color(100, 100, 128, 255),
+        "local.border-width": Float(1),
+        "button_dark": Color(10, 50, 128, 255),
+        "button_light": Color(10, 50, 128, 50),
         "font_name": String("Menlo"),
-        "text_size_normal": Float(20),
+        "text_size_normal": Float(14),
     },
 )

@@ -1,3 +1,3 @@
 mod themeloader;
 
-pub use themeloader::{ThemeLoader, RELOAD_STYLES};
+pub use themeloader::{watch, ThemeLoader, RELOAD_STYLES};
